@@ -1,0 +1,915 @@
+
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>先備知識測驗</title>
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fontsource/noto-music@5.0.3/files/noto-music-all-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:'NotoMusic';src:url('https://cdn.jsdelivr.net/npm/@fontsource/noto-music@5.0.3/files/noto-music-all-400-normal.woff2') format('woff2');font-display:swap}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:transparent;padding:14px;color:#222;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;box-sizing:border-box;}
+.score-wrap{background:#ffffff;border:1.5px solid #ffffff;border-radius:10px 10px 0 0;padding:20px 0 36px;margin-bottom:0;position:relative;width:fit-content;}
+/* 預備拍圓點：無底色無邊框 */
+#prep-row{
+  background:none;border:none;
+  display:flex;gap:12px;justify-content:center;align-items:center;
+  min-height:26px;visibility:hidden;
+  position:absolute;top:4px;left:50%;transform:translateX(-50%);
+  pointer-events:none;
+}
+.pdot{width:11px;height:11px;border-radius:50%;background:#ddd;transition:background .06s;}
+.pdot.active{background:#4caf50;}
+
+.controls{display:flex;gap:10px;align-items:center;margin-top:7px}
+.btn{border:none;border-radius:8px;padding:9px 13px;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;transition:transform .1s;outline:none}
+.btn:active{transform:scale(0.95)}
+.btn-next{background:#f0a030;color:white}
+.btn-retry{background:#4a7cc9;color:white}
+.btn-lbl{font-size:9px;opacity:.75;margin-top:1px}
+/* 防觸控干擾：禁止兩指滑動換頁/回彈；作答畫面禁止選取文字；預備拍＋錄製期間禁止觸控螢幕的捲動與縮放 */
+html,body{overscroll-behavior:none;}
+html.in-test{-webkit-user-select:none;user-select:none;}
+html.input-locked,html.input-locked body{touch-action:none;}
+input,select,textarea{-webkit-user-select:text;user-select:text;}
+#focus-warning{display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#c62828;color:#fff;font-size:14px;font-weight:700;text-align:center;padding:8px 12px;}
+</style>
+</head>
+<body>
+<div id="restart-btn" onclick="restartCurrentQuestion()" title="這一題重新開始" style="display:none;position:fixed;top:14px;left:14px;z-index:1000;width:36px;height:36px;border-radius:50%;background:rgba(200,200,200,0.25);color:#999;font-size:22px;font-weight:700;line-height:1;align-items:center;justify-content:center;cursor:pointer;user-select:none;">↺</div>
+<div id="subject-entry" style="background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,0.08);padding:32px 28px;display:flex;flex-direction:column;align-items:center;gap:14px;min-width:260px;">
+  <div style="font-size:16px;font-weight:700;color:#333;">組別</div>
+  <select id="group-select" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;background:#fff;">
+    <option value="">請選擇組別</option>
+    <option value="G1">G1</option>
+    <option value="G2">G2</option>
+    <option value="G3">G3</option>
+  </select>
+  <div style="font-size:16px;font-weight:700;color:#333;">受試者編號</div>
+  <input type="text" id="subject-id-input" placeholder="請輸入受試者編號" style="width:100%;box-sizing:border-box;padding:9px 12px;font-size:14px;border:1.5px solid #ddd;border-radius:8px;">
+  <button onclick="startTest()" style="width:100%;border:none;background:#6b4fa0;color:#fff;border-radius:8px;padding:11px 0;font-size:15px;font-weight:700;cursor:pointer;">先備知識測驗開始</button>
+</div>
+<div id="focus-warning">⚠️ 視窗失去焦點，這段時間的按鍵可能沒有被記錄。請點回本頁面，必要時按左上角的 ↺ 讓這一題重新開始。</div>
+<div id="test-area" style="display:none;flex-direction:column;">
+<div class="score-wrap">
+  <!-- 倒數數字＋提示語：外框高度維持跟原本只有倒數數字時一樣，提示語用絕對定位疊在外框底部、倒數數字往上移，樂譜與節拍器(預備拍圓點)的位置完全不受影響 -->
+  <div style="position:relative;">
+    <div id="prep-countdown" style="text-align:center;font-family:'Times New Roman',Times,serif;font-size:30pt;color:#cccccc;line-height:1.1;user-select:none;transform:translateY(-24px);">20</div>
+    <div id="prep-hint" style="position:absolute;left:0;right:0;bottom:0;text-align:center;white-space:nowrap;font-size:16px;font-weight:700;color:#555555;line-height:1.3;user-select:none;pointer-events:none;">20秒準備期間請仔細地閱讀樂譜，並不要發出任何聲音與做出任何動作</div>
+  </div>
+  <svg id="score" style="display:block;overflow:visible;margin:0 auto"></svg>
+  <div id="prep-row">
+    <div class="pdot" id="pd0"></div><div class="pdot" id="pd1"></div>
+    <div class="pdot" id="pd2"></div><div class="pdot" id="pd3"></div>
+    <!-- 預備拍下方的作答提示：放在 #prep-row 裡、用絕對定位，跟預備拍圓點一起顯示/隱藏，不佔版面、不影響樂譜位置 -->
+    <div id="prep-row-hint" style="position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:6px;white-space:nowrap;text-align:center;font-size:16px;font-weight:700;color:#555555;line-height:1.3;user-select:none;pointer-events:none;">4拍預備拍後，請用<span style="display:inline-block;padding:0 6px;margin:0 2px;border:1.5px solid #555555;border-bottom-width:3px;border-radius:5px;background:#f5f5f5;font-size:15px;line-height:1.3;">空白鍵</span>進行作答</div>
+  </div>
+  <div id="next-arrow" style="display:none;position:absolute;top:6px;right:14px;font-size:48px;line-height:1;color:#f0a030;font-weight:900;pointer-events:none;user-select:none;">➜</div>
+</div>
+</div>
+<div id="end-screen" style="display:none;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:440px;">
+  <div style="font-size:17px;font-weight:700;color:#333;text-align:center;">測驗結束，靜待研究人員指示</div>
+  <div id="end-screen-msg" style="width:100%;box-sizing:border-box;background:#999;border-radius:15px;padding:12px 16px;min-height:52px;display:flex;align-items:center;justify-content:center;text-align:center;color:white;font-size:17px;font-weight:700;">資料上傳中…</div>
+  <div id="end-csv-row" style="display:none;">
+    <button onclick="downloadSessionCSV()" style="background:none;border:1.5px solid #6b4fa0;color:#6b4fa0;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">⬇ 下載本機備份 CSV</button>
+    <button onclick="downloadTapDetailCSV()" style="background:none;border:1.5px solid #6b4fa0;color:#6b4fa0;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-left:8px;">⬇ 下載拍點明細 CSV</button>
+    <button onclick="downloadOverallCSV()" style="background:none;border:1.5px solid #6b4fa0;color:#6b4fa0;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-left:8px;">⬇ 下載整體資料CSV</button>
+  </div>
+</div>
+<script>
+const AC=window.AudioContext||window.webkitAudioContext;
+let ac,metroNodes=[];
+function getAC(){if(!ac){ac=new AC();}return ac;}
+// 確保 AudioContext 真的已經開始運作（state==='running'）才 resolve。
+// 剛建立或剛從 suspended 喚醒的 AudioContext，音訊硬體通常需要一小段暖機時間才會真的發出聲音，
+// 但這段延遲不會反映在 a.currentTime 上；若沒等它跑穩就直接用 currentTime 排程聲音與畫面，
+// 聲音會比用系統時鐘（setTimeout）排程的畫面（例如預備拍綠點）晚一點點，造成對不齊。
+function ensureRunning(){const a=getAC();return a.state==='suspended'?a.resume():Promise.resolve();}
+function beep(freq,t,vol,track=true){const a=getAC(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=freq;g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.07);o.start(t);o.stop(t+0.09);if(track)metroNodes.push(o);return o;}
+function clap(t){const a=getAC(),len=Math.floor(a.sampleRate*0.13);const buf=a.createBuffer(1,len,a.sampleRate),d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.2);const src=a.createBufferSource();src.buffer=buf;const bp=a.createBiquadFilter();bp.type='bandpass';bp.frequency.value=1200;bp.Q.value=0.6;const g=a.createGain();g.gain.setValueAtTime(0.65,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.11);src.connect(bp);bp.connect(g);g.connect(a.destination);src.start(t);src.stop(t+0.13);}
+function stopMetro(){metroNodes.forEach(o=>{try{o.stop(getAC().currentTime);}catch(e){}});metroNodes=[];}
+
+// 每拍三種可能：四分音符、四分休止符、兩個八分音符
+
+/* ---- 自訂題目：每個小節用 4 個空白分隔的拍子代碼描述 ----
+   4  = 四分音符
+   0  = 四分休止符
+   88 = 兩個八分音符
+   檔案格式（JSON）：
+   { "name": "題組名稱", "questions": [ { "bars": ["88 4 0 4", "4 88 4 0"] }, ... ] }
+   每題的 bars 陣列，一個字串代表一個小節，各小節可以有不同數量。 */
+function parseBarCode(code){
+  const tokens=String(code).trim().split(/\s+/);
+  if(tokens.length!==4)throw new Error('每個小節需要剛好 4 個拍子代碼（4 / 0 / 88 / 08），但收到「'+code+'」（'+tokens.length+' 個代碼）');
+  const notes=[];
+  tokens.forEach((tok,beat)=>{
+    const t=tok.trim();
+    if(t==='4')notes.push({b:beat,d:1,r:0});
+    else if(t==='0')notes.push({b:beat,d:1,r:1});
+    else if(t==='88'){notes.push({b:beat,d:0.5,r:0});notes.push({b:beat+0.5,d:0.5,r:0});}
+    else if(t==='08'){notes.push({b:beat,d:0.5,r:1});notes.push({b:beat+0.5,d:0.5,r:0});}
+    else throw new Error('無法辨識的拍子代碼「'+tok+'」（只接受 4 / 0 / 88 / 08）');
+  });
+  return notes;
+}
+function parseCustomFile(data){
+  if(!data||!Array.isArray(data.questions)||data.questions.length===0)throw new Error('檔案需要有 "questions" 陣列，且至少一題');
+  return data.questions.map((q,qi)=>{
+    if(!q||!Array.isArray(q.bars)||q.bars.length===0)throw new Error('第 '+(qi+1)+' 題缺少 "bars" 陣列，或是空的');
+    return q.bars.map(parseBarCode);
+  });
+}
+
+let BARS=2,BPM=65,BEAT=60/BPM,curBars=[],totalBeats=8;
+function buildSeq(){
+  // 完全按照預設題組出題；即使索引意外超出範圍，也是夾在最後一題
+  const idx=Math.min(questionCount,customQuestions.length-1);
+  curBars=customQuestions[idx];
+  BARS=curBars.length;
+  totalBeats=BARS*4;
+}
+function globalSeq(){const s=[];curBars.forEach((bar,bi)=>bar.forEach(n=>s.push({b:n.b+bi*4,d:n.d,r:n.r})));return s;}
+
+/* ==== 0924 改版：以相對onset（IOI/ITI）取代絕對onset視窗來配對 TP/FP/FN ====
+   IOI（InterOnset Interval）＝樂譜上「上一個成功配對的音符」到「目標音符」的理想時間差（用固定BPM的絕對時間格算，不會因為飄移而改變）
+   ITI（InterTap Interval）＝受試者「上一個成功配對的拍點」到「這次拍點」的實際時間差
+   門檻＝半個八分音符＝BEAT/4（跟著BPM滑桿連動，65BPM時約等於231ms）
+   逐一拍點比對，用一個會往前推進的參照點(refIdeal/refTap)取代固定的絕對視窗：
+     |ITI-IOI| ≤ 門檻        → TP，參照點推進到這個音符/這次拍點
+     ITI-IOI > 門檻（拍點來得太晚）→ 目標音符判 FN(Miss)，參照點不動，同一個拍點繼續跟下一個音符比對
+     ITI-IOI < -門檻（拍點來得太早/多打）→ 這次拍點判 FP，參照點不動，換下一個拍點比對同一個目標音符
+   休止符不再另外用視窗判斷，其時長會自然併入下一個音符的IOI累加中（落在休止符時段的拍點會因為ITI太短被判成FP）。
+   MAE 仍用「TP拍點的實際時間 - 該音符原本絕對理想時間」來算，反映整體節奏精準度（不受相對配對影響）。
+   新增指標：迴歸斜率β──x軸為第幾個成功配對的拍點(1,2,3...)，y軸為該次比對的 RTE(%)＝(ITI-IOI)/IOI×100，
+   算出這些點的最小平方迴歸斜率：β≒0代表整體穩定，β>0代表越打越慢，β<0代表越打越快。 */
+function matchAll(seq,hits,beat){
+  const threshold=beat/4;
+  const notes=seq.filter(e=>!e.r).map((n,i)=>({...n,idealT:n.b*beat,idx:i,barIdx:Math.floor(n.b/4),result:null,diff:null,ratio:null,ioiMs:null,errorMs:null}));
+  const hs=hits.map(h=>({t:h,result:null,diff:null,ni:-1,barIdx:null,ioiMs:null,itiMs:null,ratio:null,errorMs:null}));
+  let refIdeal=0,refTap=0,pointer=0;
+  const total=notes.length;
+  hs.forEach(h=>{
+    const t=h.t;
+    while(true){
+      if(pointer>=total){h.result='FP';h.barIdx=BARS-1;break;}
+      const target=notes[pointer];
+      const IOI=target.idealT-refIdeal,ITI=t-refTap,diff=ITI-IOI;
+      const ioiMs=Math.round(IOI*1000),itiMs=Math.round(ITI*1000),ratio=IOI>0?ITI/IOI:null;
+      if(Math.abs(diff)<=threshold){
+        const ms=Math.round(diff*1000);
+        h.result='TP';h.diff=ms;h.ni=pointer;h.barIdx=target.barIdx;
+        h.ioiMs=ioiMs;h.itiMs=itiMs;h.ratio=ratio;h.errorMs=Math.round((t-target.idealT)*1000);
+        target.result='TP';target.diff=ms;target.ratio=ratio;target.ioiMs=ioiMs;target.errorMs=h.errorMs;
+        refIdeal=target.idealT;refTap=t;pointer++;
+        break;
+      }else if(diff>threshold){
+        target.result='FN';target.ioiMs=ioiMs;pointer++;
+        // 這個音符被判漏拍(FN)，參照點不動，同一個拍點繼續往下一個音符比對
+        // （FN沒有實際配對到的拍點，所以不記錄ITI/Error，只留下當時的IOI供參考）
+      }else{
+        h.result='FP';h.diff=Math.round(diff*1000);h.barIdx=target.barIdx;
+        h.ioiMs=ioiMs;h.itiMs=itiMs;h.ratio=ratio;h.errorMs=Math.round((t-target.idealT)*1000);
+        break;
+      }
+    }
+  });
+  for(let i=pointer;i<total;i++){if(!notes[i].result){notes[i].result='FN';notes[i].ioiMs=Math.round((notes[i].idealT-refIdeal)*1000);}}
+  const TP=notes.filter(n=>n.result==='TP').length;
+  const FN=notes.filter(n=>n.result==='FN').length;
+  const FP=hs.filter(h=>h.result==='FP').length;
+  const P=(TP+FP)>0?TP/(TP+FP):0,R=(TP+FN)>0?TP/(TP+FN):0,F=P+R>0?2*P*R/(P+R):0;
+  const tpNotes=notes.filter(n=>n.result==='TP');
+  // MAE＝逐拍明細中 AE（|實際拍點時間-該音符絕對理想時間|）的算術平均數，只計 TP
+  const MAE=tpNotes.length>0?parseFloat((tpNotes.reduce((a,n)=>a+Math.abs(n.errorMs),0)/tpNotes.length).toFixed(2)):null;
+  // RTE(%)：跟MAE同一套邏輯，但用相對時間誤差百分比(對每個TP音符算|diff/IOI×100|)取平均，反映整體節奏「相對」精準度
+  const tpForRte=tpNotes.filter(n=>n.ioiMs);
+  const RTE=tpForRte.length>0?parseFloat((tpForRte.reduce((a,n)=>a+Math.abs(n.diff/n.ioiMs*100),0)/tpForRte.length).toFixed(1)):null;
+  // 迴歸斜率β：x=第幾個成功配對的拍點(1,2,3...)，y=該次的 RTE(%)＝(ITI-IOI)/IOI×100（排除IOI=0時無法計算的第一個音符）
+  // β單位：每多一個TP拍點，RTE變化幾個百分點；β0單位：%（x=0時的RTE截距）
+  const betaPts=tpNotes.filter(n=>n.ratio!==null);
+  let beta=null,beta0=null;
+  if(betaPts.length>=2){
+    const xs=betaPts.map((_,i)=>i+1),ys=betaPts.map(n=>(n.ratio-1)*100);
+    const n=xs.length,meanX=xs.reduce((a,b)=>a+b,0)/n,meanY=ys.reduce((a,b)=>a+b,0)/n;
+    let num=0,den=0;
+    for(let i=0;i<n;i++){num+=(xs[i]-meanX)*(ys[i]-meanY);den+=(xs[i]-meanX)**2;}
+    beta=den!==0?parseFloat((num/den).toFixed(2)):0;
+    beta0=parseFloat((meanY-(num/(den||1))*meanX).toFixed(2)); // 迴歸截距，用來畫趨勢線（y=beta0+beta*x）
+  }
+  const barStats=Array.from({length:BARS},(_,bi)=>{
+    const bn=notes.filter(n=>n.barIdx===bi);
+    const bTP=bn.filter(n=>n.result==='TP').length,bFN=bn.filter(n=>n.result==='FN').length;
+    const bFP=hs.filter(h=>h.result==='FP'&&h.barIdx===bi).length;
+    const bR=(bTP+bFN)>0?bTP/(bTP+bFN):0,bP=(bTP+bFP)>0?bTP/(bTP+bFP):0,bF=bP+bR>0?2*bP*bR/(bP+bR):0;
+    const btp=bn.filter(n=>n.result==='TP');
+    const bMAE=btp.length>0?parseFloat((btp.reduce((a,n)=>a+Math.abs(n.errorMs),0)/btp.length).toFixed(2)):null;
+    return{TP:bTP,FN:bFN,FP:bFP,F:bF,MAE:bMAE};
+  });
+  return{notes,hs,TP,FN,FP,P,R,F,MAE,RTE,N:total,TAP:hs.length,beta,beta0,barStats};
+}
+
+let phase='idle',taskStartTime=0,userHits=[],lastMatchResult=null;
+let SESSION_TOTAL=3;
+let customQuestions=null; // 預設題組：[[bar0Notes,bar1Notes,...], ...]，每一項對應一題
+let sessionLog=[];let questionCount=0;
+let tapDetailLog=[]; // 每一題「每一個拍點」的分類(準/快/慢/多打/Miss)與時間差(ms)，準的門檻為 |時間差|<=80ms
+let pendingFinish=false; // 最後一題完成後設為 true，此時按右方向鍵會結束測驗
+let subjectId='';
+let groupId='';
+// === 雲端上傳設定 ===
+// 把 Apps Script 部署後拿到的網址（結尾是 /exec）貼在這裡，例如：
+// 'https://script.google.com/macros/s/AKfycb.../exec'
+// 留空字串 '' 則不會嘗試上傳。
+const GOOGLE_SHEET_WEBHOOK_URL='https://script.google.com/macros/s/AKfycbyUcl9dx0gvevHOooTQ8LW6PsHLpM1LGlNVRR9cKjOpGl08Qg97hbJxICZOihwrubzr/exec';
+// 兩份表的欄位順序，跟雲端試算表的欄位定義保持一致（0924版）
+const SUMMARY_HEADER=['組別','受試者編號','題號','F-score(%)','MAE(ms)','MARTE(%)','β','β0','N','TAP','TP','FP','FN','圖片連結'];
+const TAP_DETAIL_HEADER=['組別','受試者編號','題號','拍點序號','分類','Error(ms)','AE(ms)','RTE(%)','ARTE(%)'];
+// CSV欄位安全輸出：內容含逗號、雙引號、換行時要用雙引號包起來（回饋圖base64圖片資料本身就含有斜線等字元，保險起見一樣escape）
+function csvField(v){
+  if(v===null||v===undefined)return'';
+  const s=String(v);
+  if(/[",\n]/.test(s))return'"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+let endTmr=null,prepTmr=null;
+const pdots=[0,1,2,3].map(i=>document.getElementById('pd'+i));
+
+function showPrepRow(v){document.getElementById('prep-row').style.visibility=v?'visible':'hidden';}
+function showNextArrow(v){document.getElementById('next-arrow').style.display=v?'block':'none';}
+function flashDot(i){pdots.forEach(d=>d.classList.remove('active'));if(i>=0)pdots[i].classList.add('active');}
+
+/* 每題顯示樂譜後，開始「準備時間」倒數20秒（畫面上以灰色數字顯示），
+   強制準備：倒數期間按空白鍵不會提早開始，一定要等滿20秒，時間一到才自動進入預備拍。 */
+const PREP_COUNTDOWN_SEC=20;
+let prepCountdownVal=PREP_COUNTDOWN_SEC,prepCountdownTmr=null;
+function setPrepCountdownVisibility(v){ // 倒數數字與下方提示語一起顯示/隱藏
+  document.getElementById('prep-countdown').style.visibility=v;
+  document.getElementById('prep-hint').style.visibility=v;
+}
+function updatePrepCountdownDisplay(){const el=document.getElementById('prep-countdown');if(el)el.textContent=prepCountdownVal;}
+function stopPrepCountdown(){if(prepCountdownTmr){clearInterval(prepCountdownTmr);prepCountdownTmr=null;}}
+function startPrepCountdown(){
+  stopPrepCountdown();
+  if(document.getElementById('test-area').style.display!=='flex'){ // 還在填組別/受試者編號的頁面：不倒數、不自動播節拍器
+    setPrepCountdownVisibility('hidden');
+    return;
+  }
+  prepCountdownVal=PREP_COUNTDOWN_SEC;
+  updatePrepCountdownDisplay();
+  setPrepCountdownVisibility('visible');
+  prepCountdownTmr=setInterval(()=>{
+    prepCountdownVal--;
+    if(prepCountdownVal<=0){
+      stopPrepCountdown();
+      if(phase==='idle'&&document.getElementById('test-area').style.display==='flex')start(); // 時間到，受試者還沒開始作答，強制進入預備拍
+    }else{
+      updatePrepCountdownDisplay();
+    }
+  },1000);
+}
+
+function startTest(){
+  const input=document.getElementById('subject-id-input');
+  const id=input.value.trim();
+  if(!id){alert('請輸入受試者編號');input.focus();return;}
+  const groupSelect=document.getElementById('group-select');
+  const group=groupSelect.value;
+  if(!group){alert('請選擇組別');groupSelect.focus();return;}
+  subjectId=id;
+  groupId=group;
+  document.getElementById('subject-entry').style.display='none';
+  document.getElementById('test-area').style.display='flex';
+  startPrepCountdown();
+  ensureRunning(); // 提早（趁這個真人手勢）建立並喚醒 AudioContext，讓它在受試者按空白鍵前就先暖機完成，
+                    // 避免第一題的預備拍聲音因為 AudioContext 剛啟動而落後於綠點畫面
+}
+
+function handleTap(){
+  if(phase==='idle'){if(prepCountdownTmr)return;start();} // 20秒準備倒數還在跑時，空白鍵不能提早開始(強制準備滿20秒)
+  else if(phase==='recording'||(phase==='preparing'&&ac&&ac.currentTime>=taskStartTime-BEAT/2)){onHit();}
+}
+
+// 「下一題」在最後一題時會變成「完成測驗」（pendingFinish=true）；
+// 按右方向鍵時，直接結束測驗、進入結束頁面，而不是嘗試出下一題。
+function handleNextOrFinish(){
+  console.log('[除錯] handleNextOrFinish 被呼叫，pendingFinish=',pendingFinish);
+  if(pendingFinish){pendingFinish=false;finishTest();}
+  else{newQuestion();}
+}
+
+/* 用 capture 階段掛在 document 上，確保無論當下鍵盤焦點停在哪個按鈕/滑桿上，
+   空白鍵與方向鍵一定會被接收到，不會被個別元素的監聽器攔截而遺漏拍點。
+   注意：handleTap() 必須是這個事件處理函式裡「第一個」被呼叫的動作，
+   中間不要插入 blur() 之類的額外操作，否則某些瀏覽器可能不再把後續
+   建立/恢復 AudioContext 的動作視為直接源自使用者手勢，導致完全沒聲音。
+   全程都是鍵盤操作：空白鍵＝開始／拍擊，右方向鍵＝下一題／完成測驗，沒有任何滑鼠可點的按鈕。 */
+document.addEventListener('keydown',function(e){
+  if(subjectId===''||document.getElementById('test-area').style.display==='none')return; // 尚未輸入受試者編號開始測驗前，不接受按鍵
+  if(e.code==='Space'){
+    e.preventDefault();e.stopPropagation();
+    handleTap();
+    if(ac&&ac.state!=='running'){ac.resume().catch(()=>{});console.warn('[除錯] 按空白鍵時 AudioContext 不是 running（',ac.state,'），已嘗試喚醒');} // 保險：音訊被系統暫停時(例如切換耳機/喇叭、螢幕休眠)，趁這個真人按鍵把它喚醒
+  } else if(e.code==='ArrowRight'){
+    e.preventDefault();e.stopPropagation();
+    if(phase==='done')handleNextOrFinish();
+  }
+},true);
+
+/* === 防觸控干擾 ===
+   1) 預備拍＋作答錄製期間(phase=preparing/recording)：整個頁面的滑鼠/觸控板/觸控螢幕輸入(含捲動)全部攔截，
+      誤觸不會點到任何東西、不會捲動、不會讓按鍵焦點跑掉；鍵盤(空白鍵)完全不受影響。
+      唯一例外是左上角的 ↺：任何時候(包含預備拍與錄製中)都可以按，讓這一題重新開始。
+   2) 作答畫面顯示期間：一律擋掉右鍵選單、Ctrl＋滾輪/捏合縮放、選取文字。
+   3) 作答畫面顯示期間若要離開/重新整理/觸控板兩指滑動回上一頁，瀏覽器會先跳出確認，避免資料遺失。
+   4) 錄製期間視窗失去焦點(例如誤觸到工作列或其他視窗)時，畫面上方顯示紅色警告。 */
+function inTestScreen(){return document.getElementById('test-area').style.display==='flex';}
+function pointerLocked(){return inTestScreen()&&(phase==='preparing'||phase==='recording');}
+// 左上角 ↺ 是唯一的例外：預備拍＋錄製期間也可以按，讓這一題在作答完畢前隨時重新開始
+function isRestartTarget(e){const b=document.getElementById('restart-btn');return !!(b&&e.target&&b.contains(e.target));}
+['pointerdown','pointerup','mousedown','mouseup','click','dblclick','auxclick','touchstart','touchmove','touchend','wheel','dragstart']
+  .forEach(type=>window.addEventListener(type,e=>{
+    if(pointerLocked()&&!isRestartTarget(e)){e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}
+  },{capture:true,passive:false}));
+['contextmenu','selectstart','gesturestart','gesturechange']
+  .forEach(type=>window.addEventListener(type,e=>{
+    if(inTestScreen()){e.preventDefault();e.stopPropagation();}
+  },{capture:true,passive:false}));
+window.addEventListener('wheel',e=>{if(inTestScreen()&&e.ctrlKey)e.preventDefault();},{capture:true,passive:false}); // 觸控板捏合縮放
+window.addEventListener('beforeunload',e=>{if(inTestScreen()){e.preventDefault();e.returnValue='';}});
+window.addEventListener('blur',()=>{
+  if(pointerLocked()){document.getElementById('focus-warning').style.display='block';console.warn('[除錯] 作答期間視窗失去焦點，phase=',phase);}
+});
+window.addEventListener('focus',()=>{document.getElementById('focus-warning').style.display='none';});
+setInterval(()=>{ // 依目前狀態切換 CSS（選取文字、觸控螢幕捲動/縮放）
+  const root=document.documentElement;
+  root.classList.toggle('in-test',inTestScreen());
+  root.classList.toggle('input-locked',pointerLocked());
+},100);
+
+/* 「本題重新開始」用：attemptId 每次開始作答/重新開始都會遞增，讓還沒跑完的舊非同步流程自動作廢；
+   prepNodes/prepFlashTmrs 記錄預備拍的聲音與綠點計時器，重新開始時一併停掉，避免舊的預備拍繼續響。 */
+let attemptId=0,prepNodes=[],prepFlashTmrs=[];
+function stopPrepAudio(){
+  prepNodes.forEach(o=>{try{o.stop(getAC().currentTime);}catch(e){}});prepNodes=[];
+  prepFlashTmrs.forEach(id=>clearTimeout(id));prepFlashTmrs=[];
+}
+
+function start(){
+  if(phase==='preparing'||phase==='recording')return;
+  stopPrepCountdown();
+  setPrepCountdownVisibility('hidden');
+  userHits=[];lastMatchResult=null;
+  const myAttempt=++attemptId;
+  phase='preparing';
+  showPrepRow(true);flashDot(-1);
+  taskStartTime=Infinity; // 等 AudioContext 暖機的這段空檔，先設成無限大，避免沿用上一題殘留的 taskStartTime 誤觸發 onHit
+  // 等 AudioContext 確認真的 running 之後，才把「現在」當作排程聲音與畫面共同的時間基準，
+  // 避免剛啟動/剛喚醒時那段音訊暖機延遲，害聲音跟綠點對不齊。
+  ensureRunning().then(()=>{
+    if(phase!=='preparing'||myAttempt!==attemptId)return; // 等待期間使用者若已經取消/重來，就不要再排程
+    const a=getAC(),now=a.currentTime+0.05;
+    for(let i=0;i<4;i++){prepNodes.push(beep(i===0?880:660,now+i*BEAT,i===0?0.3:0.2,false));prepFlashTmrs.push(setTimeout(()=>flashDot(i),Math.max(0,(now+i*BEAT-a.currentTime)*1000)));}
+    const taskStart=now+4*BEAT;taskStartTime=taskStart;
+    prepTmr=setTimeout(()=>{
+      phase='recording';
+      showPrepRow(false);flashDot(-1);
+      if(endTmr)clearTimeout(endTmr);
+      endTmr=setTimeout(endRec,(totalBeats*BEAT+0.5)*1000);
+    },Math.max(0,(taskStart-a.currentTime)*1000));
+  });
+}
+
+function onHit(){
+  const a=getAC(),t=a.currentTime-taskStartTime;
+  if(t<-BEAT/2)return; // 允許在第一拍前最多半拍的搶拍，讓它進入正常判定（可能被判太早、但不會被直接丟掉變 MISS）
+  userHits.push(t);
+  clap(a.currentTime);
+}
+
+function endRec(){
+  phase='done';
+  const r=matchAll(globalSeq(),userHits,BEAT);lastMatchResult=r;
+  const isLast=questionCount+1>=SESSION_TOTAL;
+  showNextArrow(true);
+  if(isLast){
+    pendingFinish=true;
+  }
+}
+
+function logTapDetails(r,qNum){
+  // 記錄這一題「每一個拍點/音符」的完整比對數據：
+  // Error＝絕對時間差(有正負，實際拍點時間-該音符原本絕對理想時間)；Absolutely Error＝Error取絕對值
+  // Relative Timing Error(%)＝(ITI-IOI)/IOI×100；分類＝TP/FP/FN
+  // TP：Error/AbsError/RTE%/IOI/ITI/ratio 都有值(有實際配對到音符)。
+  // FP(多打)：代表沒有配對到任何音符，所以只留 ITI(唯一跟「音符」無關、單純是拍點跟拍點之間量得到的時間)，
+  // 其餘(Error/AbsError/RTE%/IOI/ratio)都是要「配對到音符」才有意義的數字，一律留空。
+  // FN(Miss)：完全沒有拍點，全部留空。
+  r.hs.forEach(h=>{
+    if(h.result==='FP'){
+      tapDetailLog.push({q:qNum,note:'',cat:'FP',error:'',abserror:'',relerr:'',marte:'',ioi:'',iti:(h.itiMs!==null?h.itiMs:''),ratio:''});
+      return;
+    }
+    tapDetailLog.push({
+      q:qNum,
+      note:(h.ni>=0?h.ni+1:''),
+      cat:h.result,
+      error:(h.errorMs!==null?h.errorMs:''),
+      abserror:(h.errorMs!==null?Math.abs(h.errorMs):''),
+      relerr:(h.ioiMs&&h.ioiMs!==0&&h.diff!==null?parseFloat((h.diff/h.ioiMs*100).toFixed(1)):''),
+      marte:(h.ioiMs&&h.ioiMs!==0&&h.diff!==null?Math.abs(parseFloat((h.diff/h.ioiMs*100).toFixed(1))):''), // MARTE＝Relative Timing Error(%)取絕對值
+      ioi:(h.ioiMs!==null?h.ioiMs:''),
+      iti:(h.itiMs!==null?h.itiMs:''),
+      ratio:(h.ratio!==null?parseFloat(h.ratio.toFixed(3)):'')
+    });
+  });
+  r.notes.forEach((n,i)=>{
+    if(n.result==='FN'){
+      tapDetailLog.push({q:qNum,note:i+1,cat:'FN',error:'',abserror:'',relerr:'',marte:'',ioi:(n.ioiMs!==null?n.ioiMs:''),iti:'',ratio:''});
+    }
+  });
+}
+
+function downloadTapDetailCSV(){
+  if(tapDetailLog.length===0){alert('目前還沒有任何拍點紀錄可以下載。');return;}
+  const header=TAP_DETAIL_HEADER.join(',');
+  const rows=tapDetailLog.map(d=>[groupId,subjectId,d.q,d.note,d.cat,d.error,d.abserror,d.relerr,d.marte].map(csvField).join(','));
+  const filename='tapdetail_'+(groupId||'G')+'_'+(subjectId||'data')+'.csv';
+  const blob=new Blob(['\uFEFF'+header+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const blobUrl=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=blobUrl;link.download=filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(()=>URL.revokeObjectURL(blobUrl),10000);
+}
+
+async function exportCSV(){
+  if(!lastMatchResult){console.log('[除錯] exportCSV: lastMatchResult是空的，直接return，這一題不會被記錄');return;}
+  console.log('[除錯] exportCSV 開始，questionCount(舊)=',questionCount);
+  questionCount++;
+  logTapDetails(lastMatchResult,questionCount);
+  // 檔名規則：先備_組別_受試者編號_試題題數
+  const imgFilename='先備_'+(groupId||'G')+'_'+(subjectId||'S')+'_'+questionCount;
+  console.log('[除錯] 開始產生回饋圖(buildFeedbackImage)...');
+  let imgDataUrl='';
+  try{
+    imgDataUrl=await buildFeedbackImage(curBars,lastMatchResult,BEAT); // base64 PNG，實際存到雲端資料夾、換成網址的動作要靠後端(Apps Script)處理，見下方uploadToGoogleSheet的說明
+    console.log('[除錯] 回饋圖產生完成，長度=',imgDataUrl.length,'開頭=',imgDataUrl.slice(0,30));
+  }catch(err){
+    console.error('[除錯] buildFeedbackImage 發生例外(catch住了，不會卡住流程)：',err);
+  }
+  sessionLog.push({
+    q:questionCount,
+    f:parseFloat((lastMatchResult.F*100).toFixed(1)),
+    mae:(lastMatchResult.MAE!==null?lastMatchResult.MAE:''),
+    rte:(lastMatchResult.RTE!==null?lastMatchResult.RTE:''),
+    n:lastMatchResult.N,
+    tap:lastMatchResult.TAP,
+    tp:lastMatchResult.TP,
+    fp:lastMatchResult.FP,
+    fn:lastMatchResult.FN,
+    aeSum:lastMatchResult.notes.filter(n=>n.result==='TP').reduce((a,n)=>a+Math.abs(n.errorMs),0), // 這題所有TP的|AE|總和，給整體MAE用
+    beta:(lastMatchResult.beta!==null?lastMatchResult.beta:''),
+    beta0:(lastMatchResult.beta0!==null?lastMatchResult.beta0:''),
+    imgFilename:imgFilename,
+    imgDataUrl:imgDataUrl
+  });
+  console.log('[除錯] exportCSV 結束，sessionLog目前共',sessionLog.length,'筆');
+}
+
+function downloadSessionCSV(){
+  if(sessionLog.length===0){alert('目前還沒有任何一題的紀錄可以下載。');return;}
+  const header=SUMMARY_HEADER.join(',');
+  // 本機備份CSV沒有後端可以幫忙把圖片存到雲端資料夾，所以最後一欄先放base64圖片資料本身(可以貼到瀏覽器網址列直接看圖)，
+  // 不是真正的雲端網址；雲端試算表那邊(uploadToGoogleSheet)才會是Apps Script處理過、寫回真正網址的版本。
+  const rows=sessionLog.map(d=>[groupId,subjectId,d.q,d.f,d.mae,d.rte,d.beta,d.beta0,d.n,d.tap,d.tp,d.fp,d.fn,d.imgDataUrl].map(csvField).join(','));
+  const filename='pretest_'+(groupId||'G')+'_'+(subjectId||'data')+'.csv';
+  // 用 Blob + Object URL 而非 data: URI：data: 連結搭配 target="_blank"
+  // 在部分瀏覽器會被當成「開新分頁的導覽」而非單純下載；
+  // Blob URL 搭配 a[download] 會被瀏覽器直接辨識為檔案下載。
+  const blob=new Blob(['\uFEFF'+header+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8;'});
+  const blobUrl=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=blobUrl;link.download=filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(()=>URL.revokeObjectURL(blobUrl),10000);
+}
+
+// 整體資料CSV：組別,受試者編號,F-score,MAE
+// F-score＝把所有題目的 TP/FP/FN 加總後再算一次（不是各題F-score平均），以百分比呈現、取到小數1位
+// MAE＝把所有題目的 TP 拍點合在一起，|實際拍點時間-絕對理想時間| 的算術平均數(ms，取到小數2位)（不是各題MAE平均）
+const OVERALL_HEADER=['組別','受試者編號','F-score','MAE'];
+function computeOverall(){
+  const TP=sessionLog.reduce((a,d)=>a+d.tp,0),FP=sessionLog.reduce((a,d)=>a+d.fp,0),FN=sessionLog.reduce((a,d)=>a+d.fn,0);
+  const P=(TP+FP)>0?TP/(TP+FP):0,R=(TP+FN)>0?TP/(TP+FN):0,F=P+R>0?2*P*R/(P+R):0;
+  const aeSum=sessionLog.reduce((a,d)=>a+d.aeSum,0);
+  return{f:parseFloat((F*100).toFixed(1)),mae:TP>0?parseFloat((aeSum/TP).toFixed(2)):''};
+}
+function downloadOverallCSV(){
+  if(sessionLog.length===0){alert('目前還沒有任何一題的紀錄可以下載。');return;}
+  const o=computeOverall();
+  const header=OVERALL_HEADER.join(',');
+  const row=[groupId,subjectId,o.f,o.mae].map(csvField).join(',');
+  const filename='overall_'+(groupId||'G')+'_'+(subjectId||'data')+'.csv';
+  const blob=new Blob(['\uFEFF'+header+'\n'+row],{type:'text/csv;charset=utf-8;'});
+  const blobUrl=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  link.href=blobUrl;link.download=filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(()=>URL.revokeObjectURL(blobUrl),10000);
+}
+
+function uploadToGoogleSheet(){
+  console.log('[除錯] uploadToGoogleSheet 開始，GOOGLE_SHEET_WEBHOOK_URL=',GOOGLE_SHEET_WEBHOOK_URL);
+  if(!GOOGLE_SHEET_WEBHOOK_URL){
+    document.getElementById('end-screen-msg').textContent='⚠️ 尚未設定雲端試算表網址，資料未能上傳，請聯絡研究人員';
+    return;
+  }
+  // 每題摘要，欄位順序見 SUMMARY_HEADER：組別,受試者編號,題號,F-score(%),MAE(ms),MARTE(%),β,β0,N,TAP,TP,FP,FN,圖片連結
+  // 最後一欄（回饋圖網址）先留空字串，實際網址要等 Apps Script 那邊把 images 裡對應的圖片存進雲端資料夾、
+  // 取得分享連結之後，再回填到這一欄、寫進試算表列（我們前端沒有直接寫入雲端資料夾的權限）。
+  const sessionRows=sessionLog.map(d=>[groupId,subjectId,d.q,d.f,d.mae,d.rte,d.beta,d.beta0,d.n,d.tap,d.tp,d.fp,d.fn,'']);
+  // 拍點明細，欄位順序見 TAP_DETAIL_HEADER：組別,受試者編號,題號,拍點序號,分類,Error(ms),AE(ms),RTE(%),ARTE(%)
+  const tapRows=tapDetailLog.map(d=>[groupId,subjectId,d.q,d.note,d.cat,d.error,d.abserror,d.relerr,d.marte]);
+  // 回饋圖：每題一張，檔名依「先備_組別_受試者編號_試題題數」命名，dataUrl是base64 PNG，
+  // 交給Apps Script存進指定的雲端資料夾、取得網址後寫回SUMMARY對應列的最後一欄。
+  // 整體資料，欄位順序見 OVERALL_HEADER：組別,受試者編號,F-score,MAE（每位受試者一列）
+  const o=computeOverall();
+  const overallRows=sessionLog.length>0?[[groupId,subjectId,o.f,o.mae]]:[];
+  const images=sessionLog.map(d=>({group:groupId,subject:subjectId,q:d.q,filename:d.imgFilename,dataUrl:d.imgDataUrl}));
+  console.log('[除錯] 準備送出，sessionRows筆數=',sessionRows.length,'tapRows筆數=',tapRows.length,'images筆數=',images.length);
+  const msgEl=document.getElementById('end-screen-msg');
+  // 不使用 no-cors：Apps Script 以 ContentService 回傳時會帶允許跨網域讀取的標頭，前端可以讀到後端實際回傳的 {status:'ok'|'error'}。
+  // Content-Type 用 text/plain 屬於「簡單請求」，不會觸發預檢請求（preflight）；Apps Script 端照樣用 JSON.parse(e.postData.contents) 解析。
+  // 只有後端明確回傳 status==='ok' 才顯示「已上傳」，其他任何情況（連線失敗、逾時、後端錯誤、回應不是預期格式）都顯示失敗。
+  const controller=('AbortController' in window)?new AbortController():null;
+  const timeoutTmr=controller?setTimeout(()=>controller.abort(),60000):null; // 60秒沒有回應就當作失敗
+  fetch(GOOGLE_SHEET_WEBHOOK_URL,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({sessionRows,tapRows,overallRows,images,summaryHeader:SUMMARY_HEADER,tapDetailHeader:TAP_DETAIL_HEADER,overallHeader:OVERALL_HEADER}),
+    signal:controller?controller.signal:undefined
+  }).then(res=>{
+    if(!res.ok)throw new Error('伺服器回應 HTTP '+res.status);
+    return res.text();
+  }).then(text=>{
+    let result;
+    try{result=JSON.parse(text);}
+    catch(e){throw new Error('後端回應不是預期的格式（可能部署的不是最新版，或沒有開放「任何人」存取）');}
+    console.log('[除錯] 後端回應：',result);
+    if(result&&result.status==='ok'){
+      msgEl.textContent='✅ 資料已確認存入雲端試算表';
+    }else{
+      throw new Error((result&&result.message)?result.message:'後端未回報成功');
+    }
+  }).catch(err=>{
+    console.error('[除錯] 上傳失敗：',err);
+    const reason=(err&&err.name==='AbortError')?'等候逾時':(err&&err.message?err.message:String(err));
+    msgEl.textContent='⚠️ 上傳失敗，請下載CSV檔備份並通知研究人員（'+reason+'）';
+  }).finally(()=>{if(timeoutTmr)clearTimeout(timeoutTmr);});
+}
+
+async function finishTest(){
+  console.log('[除錯] finishTest 開始');
+  try{
+    await exportCSV();
+    console.log('[除錯] exportCSV 已完成(await結束)');
+  }catch(err){
+    console.error('[除錯] exportCSV 發生例外，導致中斷：',err);
+  }
+  if(endTmr)clearTimeout(endTmr);if(prepTmr)clearTimeout(prepTmr);
+  phase='done';
+  document.getElementById('test-area').style.display='none'; // 離開作答畫面，進入結束頁面
+  document.getElementById('end-screen').style.display='flex';
+  document.getElementById('end-screen-msg').textContent='資料上傳中…';
+  document.getElementById('end-csv-row').style.display='block'; // 全部題目都完成了，才讓「下載本機備份 CSV」按鈕出現
+  console.log('[除錯] 準備呼叫 uploadToGoogleSheet()');
+  uploadToGoogleSheet(); // 資料上傳到雲端試算表；測驗結束不再自動跳出 CSV 下載，需要備份時可用上面的按鈕手動下載
+}
+
+function reset(){
+  userHits=[];lastMatchResult=null;stopMetro();pendingFinish=false;
+  if(endTmr)clearTimeout(endTmr);if(prepTmr)clearTimeout(prepTmr);
+  phase='idle';
+  showPrepRow(false);flashDot(-1);
+  showNextArrow(false);
+  document.getElementById('focus-warning').style.display='none';
+  startPrepCountdown();
+}
+async function newQuestion(){
+  console.log('[除錯] newQuestion 開始');
+  try{
+    await exportCSV();
+  }catch(err){
+    console.error('[除錯] exportCSV 發生例外(newQuestion裡)，導致中斷：',err);
+  }
+  if(questionCount<SESSION_TOTAL){reset();buildSeq();renderScore();}
+}
+function retryQ(){reset();renderScore();}
+
+/* 左上角 ↺（這一題重新開始）：丟掉這一題目前所有作答(拍點、比對結果)，停掉預備拍/計時器，回到同一題的20秒準備倒數。
+   不會呼叫 exportCSV()，題號不會前進，sessionLog/tapDetailLog 也不會多出這次的紀錄；
+   資料只有在按右方向鍵時才會寫入，測驗全部完成時才一次上傳雲端。 */
+function restartCurrentQuestion(){
+  if(!inTestScreen()){alert('測驗尚未開始，沒有可以重新開始的題目。');return;}
+  if(phase==='done')return; // 這一題已作答完成（錄製結束、出現 ➜），不能再重來
+  attemptId++;      // 讓還沒跑完的預備拍排程(ensureRunning之後的流程)自動作廢
+  stopPrepAudio();  // 停掉預備拍聲音與綠點
+  stopMetro();
+  retryQ();         // reset() 會清掉 endTmr/prepTmr(錄製中按下時，原本的結束錄製不會再觸發)、捨棄拍點、回到準備倒數
+  console.log('[除錯] 第',questionCount+1,'題重新開始，作答已捨棄');
+}
+
+/* 左上角的 ↺（這一題重新開始）：只在作答畫面、測驗還沒結束時顯示；
+   準備倒數、預備拍、錄製中都可以按；這一題作答完成（phase='done'，出現 ➜）後圖示變淡、按了沒有作用，
+   進到下一題、回到準備倒數時才恢復可按。 */
+setInterval(()=>{
+  const b=document.getElementById('restart-btn');
+  const fm=document.getElementById('finish-msg');
+  const show=inTestScreen()&&!(fm&&fm.style.display==='block');
+  b.style.display=show?'flex':'none';
+  const disabled=(phase==='done'); // 這一題作答完成：圖示變淡、按了沒有作用
+  b.style.opacity=disabled?'0.3':'1';
+  b.style.cursor=disabled?'default':'pointer';
+},100);
+
+function svgEl(tag,attrs){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));return el;}
+// 把樂譜畫在任何一個svg元素上（畫面上的即時樂譜、或離線產生回饋圖都用這個），
+// 回傳版面資訊：W,H,NL,NR,LY、每個「真正音符」依序的x座標(noteX)、以及「拍位置(以拍為單位，可以是連續值)轉x座標」的函式(xAtBeat)。
+function drawBarsOnSvg(svg,bars,barWidth,simpleRests){
+  const SW_=barWidth||202,TS=56,END=40,H=115,LY=65,ST=LY-34,IP=16;
+  const nBars=bars.length;
+  const W=TS+SW_*nBars+END;
+  const NL=TS,NR=NL+SW_*nBars;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.setAttribute('width',W);svg.setAttribute('height',H);
+  function E(tag,attrs){return svgEl(tag,attrs);}
+  function line(x1,y1,x2,y2,sw){svg.appendChild(E('line',{x1,y1,x2,y2,stroke:'#111','stroke-width':sw,'stroke-linecap':'square'}));}
+  const t1=E('text',{x:NL-16,y:LY-3,fill:'#111','font-size':'13','font-weight':'bold','font-family':'serif','text-anchor':'middle'});t1.textContent='4';svg.appendChild(t1);
+  const t2=E('text',{x:NL-16,y:LY+13,fill:'#111','font-size':'13','font-weight':'bold','font-family':'serif','text-anchor':'middle'});t2.textContent='4';svg.appendChild(t2);
+  function xAtBeat(gb){ // gb: 全域拍位置(可為連續值)，例如 note.b+bi*4，或 tapTime/beat
+    let bi=Math.floor(gb/4);if(bi<0)bi=0;if(bi>nBars-1)bi=nBars-1;
+    let localB=gb-bi*4;if(localB<0)localB=0;if(localB>3.999)localB=3.999;
+    const sl=NL+bi*SW_,il=sl+IP,iw=SW_-IP*2,bw=iw/4;
+    return il+localB*bw+bw/2;
+  }
+  const noteX=[]; // 依序記錄每個「真正音符」（非休止符）的全域拍位置與x座標
+  bars.forEach((bar,bi)=>{
+    const sl=NL+bi*SW_,il=sl+IP,iw=SW_-IP*2;
+    function nx(b){const bw=iw/4;return il+b*bw+bw/2;}
+    let i=0;
+    while(i<bar.length){
+      const n=bar[i],cx=nx(n.b);
+      if(n.d===1&&!n.r){svg.appendChild(E('ellipse',{cx,cy:LY,rx:'7',ry:'5',fill:'#111',transform:`rotate(-15,${cx},${LY})`}));svg.appendChild(E('line',{x1:cx+6,y1:LY-2,x2:cx+6,y2:ST,stroke:'#111','stroke-width':'1.8','stroke-linecap':'round'}));noteX.push({b:n.b+bi*4,x:cx});i++;}
+      else if(n.d===1&&n.r){
+        if(simpleRests){svg.appendChild(E('path',{d:`M${cx-5},${LY-13} L${cx+4},${LY-9} L${cx-4},${LY-2} L${cx+5},${LY+3} L${cx-3},${LY+13}`,fill:'none',stroke:'#111','stroke-width':'2.6','stroke-linecap':'round','stroke-linejoin':'round'}));}
+        else{const t=E('text',{x:cx,y:LY,'font-family':'"NotoMusic",serif','font-size':'38',fill:'#111','text-anchor':'middle','dominant-baseline':'middle'});t.textContent='\uD834\uDD3D';svg.appendChild(t);}
+        i++;
+      }
+      else if(n.d===0.5&&n.r){
+        if(simpleRests){svg.appendChild(E('circle',{cx:cx-2,cy:LY-6,r:'2.6',fill:'#111'}));svg.appendChild(E('path',{d:`M${cx-1},${LY-5} C${cx+7},${LY-1} ${cx+5},${LY+7} ${cx-2},${LY+11}`,fill:'none',stroke:'#111','stroke-width':'2.2','stroke-linecap':'round'}));}
+        else{const t=E('text',{x:cx,y:LY+8,'font-family':'"NotoMusic",serif','font-size':'38',fill:'#111','text-anchor':'middle','dominant-baseline':'middle'});t.textContent='\uD834\uDD3E';svg.appendChild(t);}
+        i++;
+      }
+      else if(n.d===0.5&&!n.r){
+        const beatOf=Math.floor(n.b);let j=i+1;while(j<bar.length&&bar[j].d===0.5&&!bar[j].r&&Math.floor(bar[j].b)===beatOf)j++;
+        const grp=bar.slice(i,j),sxs=[];
+        grp.forEach(gn=>{const gcx=nx(gn.b),sx=gcx+6;svg.appendChild(E('ellipse',{cx:gcx,cy:LY,rx:'7',ry:'5',fill:'#111',transform:`rotate(-15,${gcx},${LY})`}));svg.appendChild(E('line',{x1:sx,y1:LY-2,x2:sx,y2:ST,stroke:'#111','stroke-width':'1.8','stroke-linecap':'round'}));sxs.push(sx);noteX.push({b:gn.b+bi*4,x:gcx});});
+        if(grp.length===1){svg.appendChild(E('path',{d:`M${sxs[0]},${ST} C${sxs[0]+14},${ST+8} ${sxs[0]+12},${ST+18} ${sxs[0]+4},${ST+22}`,fill:'none',stroke:'#111','stroke-width':'2','stroke-linecap':'round'}));}
+        else{svg.appendChild(E('line',{x1:sxs[0],y1:ST,x2:sxs[sxs.length-1],y2:ST,stroke:'#111','stroke-width':'5','stroke-linecap':'butt'}));}
+        i=j;
+      }else i++;
+    }
+  });
+  line(NL,LY,NR,LY,'1.8');
+  line(NL,LY-22,NL,LY+22,'1.5');
+  for(let b=1;b<nBars;b++){const bx=NL+b*SW_;line(bx,LY-22,bx,LY+22,'1.2');}
+  line(NR+2,LY-22,NR+2,LY+22,'1.5');
+  line(NR+8,LY-22,NR+8,LY+22,'5');
+  return{W,H,NL,NR,LY,noteX,xAtBeat};
+}
+function renderScore(){
+  const svg=document.getElementById('score');svg.innerHTML='';
+  drawBarsOnSvg(svg,curBars,280); // 小節寬度跟練習階段一致(280)；回饋圖仍用自己的 480，不受影響
+}
+
+/* ==== 回饋圖(SVG字串)：畫面上雖然沒有即時回饋拍點，但每題結束後仍依文件的回饋設計，
+   產生一張樂譜+每個拍點判定顏色點+IOI/ITI/比值/RTE%數據列的SVG圖，存進SUMMARY每一列的最後一欄。
+   顏色判定門檻(準/尚可/不準)是用「絕對時間差(Error)」而非相對onset的diff，跟原本畫面配色邏輯一致；
+   多打(FP)一律用實心紅點；Miss(FN)依需求不畫任何點。 */
+const FEEDBACK_ACC_GREEN=60,FEEDBACK_ACC_YELLOW=130; // ms
+function feedbackDotColor(h){
+  if(h.result==='FP')return '#e24b4a';
+  if(h.result==='TP'){
+    const ae=Math.abs(h.errorMs);
+    if(ae<=FEEDBACK_ACC_GREEN)return '#4caf50';
+    if(ae<=FEEDBACK_ACC_YELLOW)return '#f0a030';
+    return '#e24b4a';
+  }
+  return null;
+}
+// TP拍點的水平偏移：準(≤60ms)完全不偏移，維持對齊音符正下方；
+// 尚可/不準(>60ms)則依這一拍偏快(errorMs為負)還是偏慢(errorMs為正)往左/右偏移，
+// 誤差絕對值越大偏移越多，但有上限(30px)，避免誤差過大時撞到旁邊的音符。
+const TP_OFFSET_SCALE=0.1,TP_OFFSET_MAX=30; // 偏移量(px) = min(30, |errorMs|×0.1)，例如130ms→13px，300ms(含)以上封頂30px
+function tpDotOffset(errorMs){
+  const ae=Math.abs(errorMs);
+  if(ae<=FEEDBACK_ACC_GREEN)return 0;
+  const mag=Math.min(TP_OFFSET_MAX,ae*TP_OFFSET_SCALE);
+  return errorMs<0?-mag:mag; // 提早(負)往左，延遲(正)往右
+}
+function buildFeedbackSVGString(bars,r,beat){
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  const geo=drawBarsOnSvg(svg,bars,480); // 用真正的NotoMusic字型畫休止符(不用simpleRests)，視覺上才會跟畫面上的樂譜一致
+  const MIN_LABEL_GAP=34;
+  // 有些「多打」發生在最後一個音符之後(沒有下一個音符可以比對出正確位置)，
+  // 統計數字(FP)仍然算進去，這裡先算好要多幾格空間，把畫布加寬，
+  // 確保等一下畫這些點的時候不會超出畫面被裁掉。
+  const trailingFPCount_=r.hs.filter(h=>h.result==='FP'&&h.ioiMs===null).length;
+  const totalW=geo.W+trailingFPCount_*MIN_LABEL_GAP;
+  const EXTRA=98,DOT_Y=geo.LY+34,ROW_IOI=geo.LY+52,ROW_ITI=geo.LY+66,ROW_RTE=geo.LY+80;
+  const H2=geo.LY+EXTRA;
+  // ---- 附加折線圖：x=拍點序號(第幾個成功配對的TP)，y=該次RTE(%)，並疊上迴歸線β ----
+  // 只用TP(且ratio!==null)的點，跟matchAll()裡算β用的betaPts是同一批資料、同一個順序。
+  const tpForChart=r.notes.filter(n=>n.result==='TP'&&n.ratio!==null);
+  const hasChart=tpForChart.length>=1;
+  const CHART_GAP=14,CHART_TITLE_H=18,CHART_AREA_H=90,CHART_XLABEL_H=12,CHART_BOTTOM_PAD=12;
+  const CHART_BLOCK_H=hasChart?(CHART_GAP+CHART_TITLE_H+CHART_AREA_H+CHART_XLABEL_H+CHART_BOTTOM_PAD):0;
+  const H3=H2+CHART_BLOCK_H;
+  svg.setAttribute('viewBox',`0 0 ${totalW} ${H3}`);svg.setAttribute('width',totalW);svg.setAttribute('height',H3);
+  // 這張SVG接下來會被拿去單獨轉成PNG(不是嵌在這個頁面裡顯示)，離線渲染時不會繼承頁面<head>裡宣告的
+  // @font-face規則，所以休止符符號(NotoMusic字型)一定要在這裡把同一份@font-face規則再宣告一次，
+  // 直接寫進這張SVG自己的<style>，瀏覽器才有辦法在渲染這張獨立SVG圖片時載入到正確的字型
+  // (前提是匯出當下能連上網路抓到字型檔；斷網的話這裡會退回瀏覽器預設字型，休止符可能顯示不出來，
+  // 但其他音符、回饋點、數字都不受影響)。
+  const style=document.createElementNS('http://www.w3.org/2000/svg','style');
+  style.textContent="@font-face{font-family:'NotoMusic';src:url('https://cdn.jsdelivr.net/npm/@fontsource/noto-music@5.0.3/files/noto-music-all-400-normal.woff2') format('woff2');font-display:swap}";
+  svg.insertBefore(style,svg.firstChild);
+  // 補一塊白色背景：原本的SVG是透明的，直接轉成PNG會沒有背景(在深色底的Google試算表儲存格裡會很難看)
+  const bg=document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x','0');bg.setAttribute('y','0');bg.setAttribute('width',String(totalW));bg.setAttribute('height',String(H3));bg.setAttribute('fill','#ffffff');
+  svg.insertBefore(bg,svg.firstChild.nextSibling);
+  function E(tag,attrs){return svgEl(tag,attrs);}
+  function txt(x,y,s,fill,anchor){const t=E('text',{x,y,fill,'font-size':'9','text-anchor':anchor||'middle','font-family':'sans-serif'});t.textContent=s;svg.appendChild(t);return t;}
+  txt(10,ROW_IOI+3,'IOI','#3355aa','start');
+  txt(10,ROW_ITI+3,'ITI','#3355aa','start');
+  txt(10,ROW_RTE+3,'RTE%','#c62828','start');
+  // 圓點本身永遠畫在真正對應的位置(絕不搬動，保證跟樂譜上的音符/時間點對齊)，
+  // 只有下面的數字在太擁擠時才會被推開，並用一條細線指回原本的點，避免讓人誤以為對不上。
+  // 把「拍點(TP/FP)」跟「漏拍的音符(FN)」全部收集成一個清單，依x座標排序後一起處理，
+  // 這樣不管原本是拍點還是音符，只要位置相鄰太近，數字都能一起避開，不會漏算碰撞。
+  const events=[];
+  let trailingFPCount=0;
+  r.hs.forEach(h=>{
+    const color=feedbackDotColor(h);
+    if(!color)return; // Miss不畫點
+    let trueX,dotX;
+    if(h.result==='TP'){
+      const pos=geo.noteX[h.ni];if(!pos)return;
+      trueX=pos.x;
+      dotX=trueX+tpDotOffset(h.errorMs); // 準(綠)不偏移；尚可/不準依早晚方向小幅偏移，見 tpDotOffset
+    }
+    else if(h.ioiMs!==null){trueX=geo.xAtBeat(h.t/beat);dotX=trueX;}
+    else{
+      // 這種「多打」發生在最後一個音符之後(沒有下一個音符可以比對出正確位置)，
+      // 統計數字(FP)仍然算進去，這裡把它畫在樂譜最後面、依序排開，
+      // 確保「圖片上看得到的點數」永遠等於 TP+FP 的統計數字，不會少畫。
+      trailingFPCount++;
+      trueX=(geo.noteX.length?geo.noteX[geo.noteX.length-1].x:geo.W/2)+MIN_LABEL_GAP*trailingFPCount;
+      dotX=trueX;
+    }
+    events.push({x:trueX,dotX,h});
+  });
+  r.notes.forEach((n,i)=>{
+    if(n.result==='FN'){
+      const pos=geo.noteX[i];if(!pos)return;
+      events.push({x:pos.x,dotX:pos.x,n});
+    }
+  });
+  events.sort((a,b)=>a.x-b.x);
+  let lastLabelX=-Infinity;
+  events.forEach(ev=>{
+    const trueX=ev.x,dotX=ev.dotX;
+    if(ev.h)svg.appendChild(E('circle',{cx:dotX,cy:DOT_Y,r:'5',fill:feedbackDotColor(ev.h)})); // FN(ev.n)沒有點，只有下面的IOI數字
+    const labelX=Math.max(trueX,lastLabelX+MIN_LABEL_GAP);
+    if(Math.abs(labelX-dotX)>1){
+      svg.appendChild(E('line',{x1:dotX,y1:DOT_Y+6,x2:labelX,y2:ROW_IOI-6,stroke:'#bbb','stroke-width':'1'}));
+    }
+    lastLabelX=labelX;
+    if(ev.h){
+      const h=ev.h;
+      // FP(多打)代表沒有配對到音符，IOI/比值/RTE%這些「配對之後才算得出來」的數字對FP來說沒有意義，
+      // 只留ITI(單純是這一下跟上一下之間量到的時間)，跟拍點明細CSV的邏輯一致。
+      if(h.result==='TP'){
+        if(h.ioiMs!==null)txt(labelX,ROW_IOI+3,String(h.ioiMs),'#3355aa');
+        if(h.ioiMs&&h.diff!==null)txt(labelX,ROW_RTE+3,(h.diff/h.ioiMs*100).toFixed(1)+'%','#c62828');
+      }
+      if(h.itiMs!==null)txt(labelX,ROW_ITI+3,String(h.itiMs),'#3355aa');
+    }else if(ev.n){
+      // FN(漏拍)：沒有拍點，只在音符正下方標出「原本應有的IOI」讓人看得出這個音符隔了多久
+      if(ev.n.ioiMs!==null)txt(labelX,ROW_IOI+3,String(ev.n.ioiMs),'#3355aa');
+    }
+  });
+  // ---- 畫附加折線圖：y改成「(ITI/IOI-1)×100%」的百分比偏差，0%代表跟樂譜理想間隔一致 ----
+  if(hasChart){
+    const chartX0=42,chartX1=totalW-14;
+    const chartW=Math.max(chartX1-chartX0,30);
+    const chartTop=H2+CHART_GAP+CHART_TITLE_H;
+    const chartBottom=chartTop+CHART_AREA_H;
+    const N=tpForChart.length;
+    const xs=tpForChart.map((_,i)=>i+1);
+    const ys=tpForChart.map(n=>(n.ratio-1)*100); // 百分比偏差：正值代表越打越慢，負值代表越打越快
+    // y軸固定上下限 ±20%（每張回饋圖尺度一致，方便互相比較）
+    const minY=-20,maxY=20;
+    const clampY=v=>Math.max(minY,Math.min(maxY,v)); // 超出範圍的點畫在上/下緣
+    function chartX(i){return N>1?chartX0+(i-1)/(N-1)*chartW:chartX0+chartW/2;}
+    function chartY(v){return chartBottom-(v-minY)/(maxY-minY)*CHART_AREA_H;}
+    // 標題：β、β0 在 matchAll() 裡就已經是以 RTE(%) 為y軸算出來的，直接顯示即可
+    const titleStr=(r.beta!==null&&r.beta!==undefined&&r.beta0!==null&&r.beta0!==undefined)?`迴歸分析：β=${r.beta.toFixed(2)}%（β0=${r.beta0.toFixed(2)}%）`:'迴歸分析：樣本數不足，無法計算β';
+    txt((chartX0+chartX1)/2,H2+CHART_GAP+9,titleStr,'#333','middle');
+    // 座標軸（左、下兩條實線）
+    svg.appendChild(E('line',{x1:chartX0,y1:chartTop,x2:chartX0,y2:chartBottom,stroke:'#999','stroke-width':'1'}));
+    svg.appendChild(E('line',{x1:chartX0,y1:chartBottom,x2:chartX1,y2:chartBottom,stroke:'#999','stroke-width':'1'}));
+    // 上限/下限刻度標籤（對應座標軸最上緣與最下緣）
+    txt(chartX0-5,chartTop+3,maxY.toFixed(1)+'%','#888','end');
+    txt(chartX0-5,chartBottom+3,minY.toFixed(1)+'%','#888','end');
+    // 0%參考線（灰色虛線）：ITI=IOI，代表這一下打得跟樂譜理想間隔一樣快
+    const y0=chartY(0);
+    svg.appendChild(E('line',{x1:chartX0,y1:y0,x2:chartX1,y2:y0,stroke:'#bbb','stroke-width':'1','stroke-dasharray':'4,3'}));
+    txt(chartX0-5,y0+3,'0.0%','#888','end');
+    // x軸刻度：每一個成功配對的拍點序號都標出來
+    xs.forEach(xi=>{txt(chartX(xi),chartBottom+CHART_XLABEL_H,String(xi),'#888','middle');});
+    // 迴歸趨勢線（β：斜率，β0：截距，兩者都由matchAll()算好，跟CSV/摘要列用的是同一組數字，單位已經是%）
+    if(N>=2&&r.beta!==null&&r.beta0!==null){
+      const yStart=r.beta0+r.beta*1,yEnd=r.beta0+r.beta*N;
+      // 趨勢線超出 ±20% 的部分用 clipPath 裁掉（不改動線本身的斜率）
+      const defs=E('defs',{}),cp=E('clipPath',{id:'rte-chart-clip'});
+      cp.appendChild(E('rect',{x:chartX0,y:chartTop,width:chartX1-chartX0,height:CHART_AREA_H}));
+      defs.appendChild(cp);svg.appendChild(defs);
+      svg.appendChild(E('line',{x1:chartX(1),y1:chartY(yStart),x2:chartX(N),y2:chartY(yEnd),stroke:'#f0a030','stroke-width':'1.6','stroke-dasharray':'5,3','clip-path':'url(#rte-chart-clip)'}));
+    }
+    // 實際資料折線與點
+    let dPath='';
+    xs.forEach((xi,idx)=>{const x=chartX(xi),y=chartY(clampY(ys[idx]));dPath+=(idx===0?'M':'L')+x+','+y+' ';});
+    svg.appendChild(E('path',{d:dPath.trim(),fill:'none',stroke:'#3355aa','stroke-width':'1.6'}));
+    // 在範圍內＝實心點；超出 ±20% ＝畫在上/下緣的空心點，表示實際值超出圖表範圍
+    xs.forEach((xi,idx)=>{
+      const x=chartX(xi),out=ys[idx]>maxY||ys[idx]<minY,y=chartY(clampY(ys[idx]));
+      svg.appendChild(E('circle',out?{cx:x,cy:y,r:'2.8',fill:'#ffffff',stroke:'#3355aa','stroke-width':'1.4'}:{cx:x,cy:y,r:'2.6',fill:'#3355aa'}));
+    });
+  }
+  return{svgStr:new XMLSerializer().serializeToString(svg),W:geo.W,H:H3};
+}
+// 把SVG字串畫到離屏canvas再輸出PNG(base64 dataURL)。Google試算表的儲存格/雲端硬碟比較適合放實際圖片檔，
+// 而不是一長串SVG原始碼，所以最後交給後端(Apps Script)存檔、寫網址的，是這個PNG。
+function svgStringToPngDataUrl(svgStr,w,h){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    const blob=new Blob([svgStr],{type:'image/svg+xml;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    img.onload=function(){
+      const scale=2; // 放大兩倍輸出，避免圖片在Sheet裡看起來模糊
+      const canvas=document.createElement('canvas');
+      canvas.width=w*scale;canvas.height=h*scale;
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='#ffffff';ctx.fillRect(0,0,canvas.width,canvas.height); // PNG預設透明背景，補白色比較好看
+      ctx.scale(scale,scale);
+      ctx.drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror=function(e){URL.revokeObjectURL(url);reject(e);};
+    img.src=url;
+  });
+}
+async function buildFeedbackImage(bars,r,beat){
+  const{svgStr,W,H}=buildFeedbackSVGString(bars,r,beat);
+  try{return await svgStringToPngDataUrl(svgStr,W,H);}
+  catch(e){console.error('回饋圖轉PNG失敗，改存SVG原始碼備援',e);return svgStr;} // 萬一轉檔失敗（理論上不太會發生），至少還是把SVG字串存起來，不會整題資料整個丟失
+}
+
+// 內建預設題目（直接寫死在檔案裡，開啟頁面時自動載入，等同於手動匯入這份 JSON）
+const DEFAULT_QUESTIONS_JSON={
+  "name": "先備測試3題",
+  "questions": [
+    { "bars": ["4 88 0 88", "88 4 08 4", "0 4 88 08", "08 4 88 4"] },
+    { "bars": ["88 88 4 08", "08 88 4 88", "4 0 4 88", "0 4 08 88"] },
+    { "bars": ["0 88 4 08", "4 88 88 0", "08 4 88 4", "88 08 4 88"] }
+  ]
+};
+(function loadDefaultQuestions(){
+  try{
+    const parsed=parseCustomFile(DEFAULT_QUESTIONS_JSON);
+    customQuestions=parsed;
+    SESSION_TOTAL=parsed.length;
+  }catch(e){
+    console.error('預設題目載入失敗',e);alert('題組載入失敗，請聯絡研究人員：\n'+e.message);
+  }
+})();
+
+buildSeq();renderScore();
+document.fonts.load('38px NotoMusic').then(()=>renderScore()).catch(()=>{});
+</script>
+</body></html>
